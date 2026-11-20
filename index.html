@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data:; connect-src 'self'; frame-src blob:; object-src 'none'; form-action 'none'">
+  <link rel="icon" href="data:,">
+  <title>Presentación privada</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111923; color: #f7f3e8; font: 1.05rem/1.5 system-ui,sans-serif; }
+    main { width: min(100% - 40px, 400px); }
+    h1 { margin: 0 0 1.25rem; font-size: clamp(2rem,8vw,2.8rem); line-height: 1.1; }
+    input,button { width: 100%; border-radius: 6px; padding: .8rem; font: inherit; }
+    input { display: block; margin: .45rem 0 1rem; background: #1d2834; border: 1px solid #8595a0; color: inherit; }
+    button { background: #ffc46f; color: #272019; border: 0; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .7; }
+    #status { min-height: 1.5em; }
+    iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+    :focus-visible { outline: 3px solid #ace3d2; outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main><h1>Presentación privada</h1>
+    <form id="unlock"><label>Contraseña<input id="key" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required></label>
+      <button>Abrir presentación</button><p id="status" role="status"></p></form>
+    <noscript>Activa JavaScript en tu navegador para abrir la presentación.</noscript>
+  </main>
+  <script>
+    const form = document.querySelector("#unlock");
+    const keyField = form.querySelector("input");
+    const submit = form.querySelector("button");
+    const status = form.querySelector("[role=status]");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (submit.disabled) return;
+      submit.disabled = true;
+      status.textContent = "Abriendo…";
+      try {
+        const response = await fetch("lectura.bin", { cache: "no-store" });
+        if (!response.ok) throw new Error();
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(keyField.value.trim()), "PBKDF2", false, ["deriveKey"]);
+        const key = await crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: bytes.slice(0,16), iterations: 600000 }, material, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+        let html;
+        try {
+          html = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(16,28) }, key, bytes.slice(28));
+        } catch {
+          status.textContent = "La contraseña no coincide.";
+          keyField.select();
+          return;
+        }
+        keyField.value = "";
+        const view = document.createElement("iframe");
+        view.title = "Presentación";
+        view.setAttribute("sandbox", "allow-scripts");
+        view.src = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+        document.body.replaceChildren(view);
+        view.focus();
+      } catch {
+        status.textContent = "No se pudo abrir. Revisa tu conexión y vuelve a intentarlo.";
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body></html>
